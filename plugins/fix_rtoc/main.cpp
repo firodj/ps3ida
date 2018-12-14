@@ -75,11 +75,23 @@ coverage func_map;
 void ProcessFunction(func_t *p_func, ea_t rtoc_ea, const unsigned long *in_gpr = NULL, const bool *in_act = NULL);
 void ProcessFunction(ea_t start_ea, ea_t end_ea, ea_t rtoc_ea, const unsigned long *in_gpr = NULL, const bool *in_act = NULL);
 
+#if IDA_SDK_VERSION >= 700
+#define RETURN_TRUE     return true
+#define RETURN_FALSE    return false
+#else
+#define RETURN_TRUE     return
+#define RETURN_FALSE    return
+#endif
+
 // This is the main plugin function. This code gets executed everytime
 // your plugin is executed.
 // 
 // args:	param: Input argument specified in the "plugins.cfg" file.
+#if IDA_SDK_VERSION >= 700
+bool idaapi PluginMain(size_t arg)
+#else
 void idaapi PluginMain(int param)
+#endif
 {
 // 	func_t* p_func = get_func(get_screen_ea());
 // 	if(p_func)
@@ -93,29 +105,29 @@ void idaapi PluginMain(int param)
 
 	if(p_seg == NULL)
 	{
-		info(".opd segment not found, so can't run PS3 %rtoc Fixer!\n");
-		return;
+		info(".opd segment not found, so can't run PS3 %%rtoc Fixer!\n");
+		RETURN_FALSE;
 	}
 
-	ea_t seg_start = p_seg->startEA;
-	ea_t seg_end = p_seg->endEA;
+	ea_t seg_start = p_seg->start_ea;
+	ea_t seg_end = p_seg->end_ea;
 	ea_t seg_ea = seg_end;
 	do
 	//for(ea_t seg_ea=seg_start; seg_ea<seg_end; seg_ea+=8)
 	{
 		seg_ea -= 8;
 
-		ea_t func_ea = get_long(seg_ea);
-		ea_t rtoc_ea = get_long(seg_ea + 4);
+		ea_t func_ea = get_dword(seg_ea);
+		ea_t rtoc_ea = get_dword(seg_ea + 4);
 
 		func_t* p_func = get_func(func_ea);
 
 		if (!p_func ||
-			p_func->startEA != func_ea)
+			p_func->start_ea != func_ea)
 		{
 			if (p_func)
 			{
-				del_func(p_func->startEA);
+				del_func(p_func->start_ea);
 			}
 			add_func(func_ea, BADADDR);
 			p_func = get_func(func_ea);
@@ -124,11 +136,11 @@ void idaapi PluginMain(int param)
 		if(p_func)
 		{
 			// resize function map
-			func_map.resize((p_func->endEA - p_func->startEA) >> 2);
+			func_map.resize((p_func->end_ea - p_func->start_ea) >> 2);
 			// clear processed status
 			memset(&func_map.front(), 0, sizeof(bool) * func_map.size());
 			// inform user of processing progress
-			msg("[%08d/%08d] Processing Function - [0x%08X - 0x%08X]...", get_func_num(func_ea), get_func_qty(), p_func->startEA, p_func->endEA);
+			msg("[%08d/%08zu] Processing Function - [%p - %p]...", get_func_num(func_ea), get_func_qty(), (void*)(uintptr_t)p_func->start_ea, (void*)(uintptr_t)p_func->end_ea);
 			// process the current function
 			ProcessFunction(p_func, rtoc_ea);
 			// function processing complete
@@ -136,16 +148,19 @@ void idaapi PluginMain(int param)
 		}
 	}
 	while (seg_ea > seg_start);
+
+	RETURN_TRUE;
 }
 
 void ProcessFunction(func_t *p_func, ea_t rtoc_ea, const unsigned long *in_gpr, const bool *in_act)
 {
-	ProcessFunction(p_func->startEA, p_func->endEA, rtoc_ea, in_gpr, in_act);
+	ProcessFunction(p_func->start_ea, p_func->end_ea, rtoc_ea, in_gpr, in_act);
 }
 void ProcessFunction(ea_t start_ea, ea_t end_ea, ea_t rtoc_ea, const unsigned long *in_gpr, const bool *in_act)
 {
 	unsigned long g_gpr[GPR_COUNT*8];
 	bool g_act[GPR_COUNT*8];
+	insn_t l_cmd;
 
 	if (in_gpr)
 		memcpy(g_gpr, in_gpr, sizeof(g_gpr));
@@ -173,14 +188,12 @@ void ProcessFunction(ea_t start_ea, ea_t end_ea, ea_t rtoc_ea, const unsigned lo
 	ea_t end = end_ea;
 	for(ea_t ea=start; ea<end; ea+=4)
 	{
-		ea_t ea_loc = (ea - p_func->startEA) >> 2;
+		ea_t ea_loc = (ea - p_func->start_ea) >> 2;
 
-		if(!decode_insn(ea) || func_map[ea_loc])
+		if(!decode_insn(&l_cmd, ea) || func_map[ea_loc])
 			continue;
 
 		func_map[ea_loc] = true;
-
-		insn_t l_cmd = cmd;
 
 		// get mnemonic
 		//ua_mnem(ea, g_mnem, sizeof(g_mnem));
@@ -191,11 +204,11 @@ void ProcessFunction(ea_t start_ea, ea_t end_ea, ea_t rtoc_ea, const unsigned lo
 		for (; iOp < UA_MAXOP; ++iOp)
 		{
 			g_opnd[iOp][0] = 0;
-			if (l_cmd.Operands[iOp].type == o_void)
+			if (l_cmd.ops[iOp].type == o_void)
 				break;
 
-			optype_t type = l_cmd.Operands[iOp].type;
-			uint16 reg = l_cmd.Operands[iOp].reg;
+			optype_t type = l_cmd.ops[iOp].type;
+			uint16 reg = l_cmd.ops[iOp].reg;
 
 			switch (type)
 			{
@@ -279,7 +292,7 @@ void ProcessFunction(ea_t start_ea, ea_t end_ea, ea_t rtoc_ea, const unsigned lo
 					func_t *p_branch = get_func(addr);
 					if ((p_func == p_branch) && (ea < addr))
 					{
-						ea_t addr_loc = (addr - p_func->startEA) >> 2;
+						ea_t addr_loc = (addr - p_func->start_ea) >> 2;
 						if (!func_map[addr_loc])
 						{
 							ProcessFunction(addr, end, (ea_t)g_gpr[2], g_gpr, g_act);
@@ -300,7 +313,7 @@ void ProcessFunction(ea_t start_ea, ea_t end_ea, ea_t rtoc_ea, const unsigned lo
 					func_t *p_branch = get_func(addr);
 					if ((p_func == p_branch) && (ea < addr))
 					{
-						ea_t addr_loc = (addr - p_func->startEA) >> 2;
+						ea_t addr_loc = (addr - p_func->start_ea) >> 2;
 						if (!func_map[addr_loc])
 						{
 							ProcessFunction(addr, end, (ea_t)g_gpr[2], g_gpr, g_act);
@@ -314,7 +327,7 @@ void ProcessFunction(ea_t start_ea, ea_t end_ea, ea_t rtoc_ea, const unsigned lo
 					func_t *p_branch = get_func(addr);
 					if ((p_func == p_branch) && (ea < addr))
 					{
-						ea_t addr_loc = (addr - p_func->startEA) >> 2;
+						ea_t addr_loc = (addr - p_func->start_ea) >> 2;
 						if (!func_map[addr_loc])
 						{
 							ProcessFunction(addr, end, (ea_t)g_gpr[2], g_gpr, g_act);
@@ -324,19 +337,19 @@ void ProcessFunction(ea_t start_ea, ea_t end_ea, ea_t rtoc_ea, const unsigned lo
 				break;
 			case PPC_or:
 				{
-					if (g_act[l_cmd.Op1.reg] = (g_act[l_cmd.Op2.reg] && g_act[l_cmd.Op3.reg]))
+					if ((g_act[l_cmd.Op1.reg] = (g_act[l_cmd.Op2.reg] && g_act[l_cmd.Op3.reg])))
 						g_gpr[l_cmd.Op1.reg] = g_gpr[l_cmd.Op2.reg] | g_gpr[l_cmd.Op3.reg];
 				}
 				break;
 			case PPC_ori:
 				{
-					if (g_act[l_cmd.Op1.reg] = g_act[l_cmd.Op2.reg])
+					if ((g_act[l_cmd.Op1.reg] = g_act[l_cmd.Op2.reg]))
 						g_gpr[l_cmd.Op1.reg] = g_gpr[l_cmd.Op2.reg] | l_cmd.Op3.value;
 				}
 				break;
 			case PPC_oris:
 				{
-					if (g_act[l_cmd.Op1.reg] = g_act[l_cmd.Op2.reg])
+					if ((g_act[l_cmd.Op1.reg] = g_act[l_cmd.Op2.reg]))
 						g_gpr[l_cmd.Op1.reg] = g_gpr[l_cmd.Op2.reg] | (l_cmd.Op3.value << 16);
 				}
 				break;
@@ -382,19 +395,19 @@ void ProcessFunction(ea_t start_ea, ea_t end_ea, ea_t rtoc_ea, const unsigned lo
 					{
 						ea_t addr = g_gpr[l_cmd.Op2.reg] + l_cmd.Op2.addr;
 
-						if (g_act[l_cmd.Op1.reg] = isEnabled(addr))
+						if ((g_act[l_cmd.Op1.reg] = is_mapped(addr)))
 						{
-							flags_t flags = get_flags_novalue(addr);
+							flags_t flags = get_flags(addr);
 							add_dref(ea, addr, (dref_t)(/*XREF_USER|*/dr_R));
 
-							if (g_act[l_cmd.Op1.reg] = isLoaded(addr))
+							if ((g_act[l_cmd.Op1.reg] = is_loaded(addr)))
 							{
-								uint32 value = 0; //get_long(addr);
+								uint32 value = 0; //get_dword(addr);
 								switch (l_cmd.itype)
 								{
 								case PPC_lfs:
 								case PPC_lwz:
-									value = get_long(addr);
+									value = get_dword(addr);
 									break;
 								case PPC_lhz:
 									value = get_word(addr);
