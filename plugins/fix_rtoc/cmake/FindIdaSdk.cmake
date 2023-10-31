@@ -1,10 +1,11 @@
-# Copyright 2011-2018 Google LLC. All Rights Reserved.
+# https://github.com/google/binexport/blob/main/cmake/FindIdaSdk.cmake
+# Copyright 2011-2023 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,7 +16,7 @@
 # FindIdaSdk
 # ----------
 #
-# Locates and configures the IDA Pro SDK. Only support version 7.0 or hight.
+# Locates and configures the IDA Pro SDK. Supports version 7.0 or higher.
 #
 # Use this module by invoking find_package with the form:
 #
@@ -28,6 +29,9 @@
 #   IdaSdk_INCLUDE_DIRS - Include directories for the IDA Pro SDK.
 #   IdaSdk_PLATFORM     - IDA SDK platform, one of __LINUX__, __NT__ or
 #                         __MAC__.
+#   IdaSdk_LIB32        - Windows: full path to a suitable ida.lib for 32-bit
+#                                  address aware IDA.
+#   IdaSdk_LIB          - Windows: path to ida.lib for 64-bit address sizes
 #
 # This module reads hints about search locations from variables:
 #
@@ -36,7 +40,6 @@
 # Example (this assumes Windows):
 #
 #   find_package(IdaSdk REQUIRED)
-#   include_directories(${IdaSdk_INCLUDE_DIRS})
 #
 #   # Builds targets plugin.dll and plugin64.dll
 #   add_ida_plugin(plugin myplugin.cc)
@@ -69,11 +72,18 @@ include(FindPackageHandleStandardArgs)
 
 find_path(IdaSdk_DIR NAMES include/pro.h
                      HINTS ${IdaSdk_ROOT_DIR} ENV IDASDK_ROOT
-                     PATHS ${CMAKE_CURRENT_LIST_DIR}/third_party/idasdk
+                     PATHS ${CMAKE_CURRENT_LIST_DIR}/../third_party/idasdk
                      PATH_SUFFIXES idasdk
                      DOC "Location of the IDA SDK"
                      NO_DEFAULT_PATH)
 set(IdaSdk_INCLUDE_DIRS ${IdaSdk_DIR}/include)
+
+if (APPLE)
+  find_path(IdaApp_DIR NAMES ida64.app/Contents/MacOS/ida64
+                      HINTS ${IdaSdk_ROOT_DIR} ENV IDAAPP_ROOT
+                      DOC "Location of the IDA App directory containing ida.app and ida64.app"
+                      NO_DEFAULT_PATH)
+endif()
 
 find_package_handle_standard_args(
   IdaSdk FOUND_VAR IdaSdk_FOUND
@@ -94,11 +104,34 @@ if(APPLE)
   set(IdaSdk_PLATFORM __MAC__)
 elseif(UNIX)
   set(IdaSdk_PLATFORM __LINUX__)
-  set(_ida_compile_options -m64)
 elseif(WIN32)
   set(IdaSdk_PLATFORM __NT__)
 else()
   message(FATAL_ERROR "Unsupported system type: ${CMAKE_SYSTEM_NAME}")
+endif()
+
+if(WIN32)
+  find_library(IdaSdk_LIB ida
+    PATHS ${IdaSdk_DIR}/lib
+    PATH_SUFFIXES x64_win_vc_64
+                  # IDA SDK 8.3 and later
+                  x64_win_vc_64_teams
+                  x64_win_vc_64_pro
+                  x64_win_vc_64_home
+    NO_DEFAULT_PATH
+  )
+  find_library(IdaSdk_LIB32 ida
+    PATHS ${IdaSdk_DIR}/lib
+    PATH_SUFFIXES x64_win_vc_32
+                  # IDA SDK 8.3 and later
+                  x64_win_vc_32_teams
+                  x64_win_vc_32_pro
+                  x64_win_vc_32_home
+    NO_DEFAULT_PATH
+  )
+  if(NOT IdaSdk_LIB OR NOT IdaSdk_LIB32)
+    message(FATAL_ERROR "Missing ida.lib from SDK lib dir")
+  endif()
 endif()
 
 function(_ida_common_target_settings t ea64)
@@ -115,11 +148,37 @@ function(_ida_common_target_settings t ea64)
   target_include_directories(${t} PUBLIC ${IdaSdk_INCLUDE_DIRS})
 endfunction()
 
+macro(_ida_check_bitness)
+  if(opt_NOEA32 AND opt_NOEA64)
+    message(FATAL_ERROR "NOEA32 and NOEA64 cannot be used at the same time")
+  endif()
+endmacro()
+
+function(_ida_library name ea64)
+  if(ea64)
+    set(t ${name}_ea64)
+  else()
+    set(t ${name}_ea32)
+  endif()
+
+  # Define the actual library.
+  add_library(${t} ${ARGN})
+  _ida_common_target_settings(${t} ${ea64})
+endfunction()
+
 function(_ida_plugin name ea64 link_script)  # ARGN contains sources
   if(ea64)
     set(t ${name}${_so64})
+    set(suffix64 "64")
+    if (APPLE)
+      set(LIBIDA_DIR "${IdaApp_DIR}/ida64.app/Contents/MacOS")
+    endif()
   else()
     set(t ${name}${_so})
+    set(suffix64 "")
+    if (APPLE)
+      set(LIBIDA_DIR "${IdaApp_DIR}/ida.app/Contents/MacOS")
+    endif()
   endif()
 
   # Define a module with the specified sources.
@@ -131,9 +190,9 @@ function(_ida_plugin name ea64 link_script)  # ARGN contains sources
     target_compile_options(${t} PUBLIC ${_ida_compile_options})
     if(APPLE)
       target_link_libraries(${t} ${_ida_compile_options}
-                                 -Wl,-flat_namespace
-                                 -Wl,-undefined,warning
-                                 -Wl,-exported_symbol,_PLUGIN,-exported_symbol,_LDSC)
+                                 -L"${LIBIDA_DIR}"
+                                 -lida${suffix64}
+                                 -Wl,-exported_symbol,_PLUGIN)
     else()
       # Always use the linker script needed for IDA.
       target_link_libraries(${t} ${_ida_compile_options}
@@ -142,32 +201,17 @@ function(_ida_plugin name ea64 link_script)  # ARGN contains sources
 
     # For qrefcnt_obj_t in ida.hpp
     # TODO(cblichmann): This belongs in an interface library instead.
-    target_compile_options(${t} PUBLIC -Wno-non-virtual-dtor)
+    target_compile_options(${t} PUBLIC
+      -Wno-non-virtual-dtor
+      -Wno-varargs
+    )
   elseif(WIN32)
     if(ea64)
-      target_link_libraries(${t} ${IdaSdk_DIR}/lib/x64_win_vc_64/ida.lib)
+      target_link_libraries(${t} ${IdaSdk_LIB})
     else()
-      target_link_libraries(${t} ${IdaSdk_DIR}/lib/x64_win_vc_32/ida.lib)
+      target_link_libraries(${t} ${IdaSdk_LIB32})
     endif()
   endif()
-endfunction()
-
-macro(_ida_check_bitness)
-  if(opt_NOEA32 AND opt_NOEA64)
-    message(FATAL_ERROR "NOEA32 and NOEA64 cannot be used at the same time")
-  endif()
-endmacro()
-
-function(_ida_library name ea64)
-  if(ea64)
-    set(t ${name}_ea32)
-  else()
-    set(t ${name}_ea64)
-  endif()
-
-  # Define the actual library.
-  add_library(${t} ${ARGN})
-  _ida_common_target_settings(${t} ${ea64})
 endfunction()
 
 function(add_ida_library name)
@@ -187,10 +231,10 @@ function(add_ida_plugin name)
   _ida_check_bitness(opt_NOEA32 opt_NOEA64)
 
   if(NOT opt_NOEA32)
-    _ida_plugin(${name} FALSE plugins/plugin.script ${opt_UNPARSED_ARGUMENTS})
+    _ida_plugin(${name} FALSE plugins/exports.def ${opt_UNPARSED_ARGUMENTS})
   endif()
   if(NOT opt_NOEA64)
-    _ida_plugin(${name} TRUE plugins/plugin.script ${opt_UNPARSED_ARGUMENTS})
+    _ida_plugin(${name} TRUE plugins/exports.def ${opt_UNPARSED_ARGUMENTS})
   endif()
 endfunction()
 
@@ -199,29 +243,35 @@ function(add_ida_loader name)
   _ida_check_bitness(opt_NOEA32 opt_NOEA64)
 
   if(NOT opt_NOEA32)
-    _ida_plugin(${name} FALSE ldr/ldr.script ${opt_UNPARSED_ARGUMENTS})
+    _ida_plugin(${name} FALSE ldr/exports.def ${opt_UNPARSED_ARGUMENTS})
   endif()
   if(NOT opt_NOEA64)
-    _ida_plugin(${name} TRUE ldr/ldr.script ${opt_UNPARSED_ARGUMENTS})
+    _ida_plugin(${name} TRUE ldr/exports.def ${opt_UNPARSED_ARGUMENTS})
   endif()
 endfunction()
 
 function(ida_target_link_libraries name)
   foreach(item IN LISTS ARGN)
-    if(TARGET ${item}_ea32)
-      list(APPEND args ${item}_ea32)
-    elseif(TARGET ${item}_ea64)
-      list(APPEND args ${item}_ea64)
+    if(TARGET ${item}_ea32 OR TARGET ${item}_ea64)
+      if(TARGET ${item}_ea32)
+        list(APPEND args32 ${item}_ea32)
+      endif()
+      if(TARGET ${item}_ea64)
+        list(APPEND args64 ${item}_ea64)
+      endif()
     else()
       list(APPEND args ${item})
     endif()
   endforeach()
-  foreach(target ${name}${_so}
-                 ${name}${_so64}
-                 ${name}_ea32
-                 ${name}_ea64)
+  foreach(target ${name}${_so} ${name}_ea32)
     if(TARGET ${target})
-      target_link_libraries(${target} ${args})
+      target_link_libraries(${target} ${args32} ${args})
+      set(added TRUE)
+    endif()
+  endforeach()
+  foreach(target ${name}${_so64} ${name}_ea64)
+    if(TARGET ${target})
+      target_link_libraries(${target} ${args64} ${args})
       set(added TRUE)
     endif()
   endforeach()
@@ -231,10 +281,8 @@ function(ida_target_link_libraries name)
 endfunction()
 
 function(ida_target_include_directories name)
-  foreach(target ${name}${_so}
-                 ${name}${_so64}
-                 ${name}_ea32
-                 ${name}_ea64)
+  foreach(target ${name}${_so} ${name}${_so64}
+                 ${name}_ea32 ${name}_ea64)
     if(TARGET ${target})
       target_include_directories(${target} ${ARGN})
       set(added TRUE)
@@ -246,10 +294,8 @@ function(ida_target_include_directories name)
 endfunction()
 
 function(set_ida_target_properties name)
-  foreach(target ${name}${_so}
-                 ${name}${_so64}
-                 ${name}_ea32
-                 ${name}_ea64)
+  foreach(target ${name}${_so} ${name}${_so64}
+                 ${name}_ea32 ${name}_ea64)
     if(TARGET ${target})
       set_target_properties(${target} ${ARGN})
       set(added TRUE)
@@ -262,12 +308,13 @@ endfunction()
 
 function(ida_install)
   foreach(item IN LISTS ARGN)
-    if(TARGET ${item}${_so} AND TARGET ${item}${_so64})
-      list(APPEND args ${item}${_so} ${item}${_so64})
-    elseif(TARGET ${item}${_so})
-      list(APPEND args ${item}${_so})
-    elseif(TARGET ${item}${_so64})
-      list(APPEND args ${item}${_so64})
+    if(TARGET ${item}${_so} OR TARGET ${item}${_so64})
+      if(TARGET ${item}${_so})
+        list(APPEND args ${item}${_so})
+      endif()
+      if(TARGET ${item}${_so64})
+        list(APPEND args ${item}${_so64})
+      endif()
     else()
       list(APPEND args ${item})
     endif()

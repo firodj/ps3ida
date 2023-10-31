@@ -6,3 +6,5 @@
 *.p64
 *.plw
 
+**/build/
+**/prefix/

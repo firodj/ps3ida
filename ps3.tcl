@@ -1,4 +1,4 @@
-#!/usr/bin/tclsh
+#!/usr/bin/env tclsh
 
 source xml.tcl
 
@@ -24,7 +24,7 @@ while { true } {
 		} else {
 			puts "$module   $fnid\t$name $cppname"
 		}
-		
+
 		incr j
 	}
 }

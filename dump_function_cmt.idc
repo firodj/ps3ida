@@ -49,7 +49,7 @@ static setComment(handle, cmt) {
 
 static main() {
   auto ea, filename, handle, cmt;
-  
+
   filename = AskFile (1, "*.idc", "IDC file to save function comments");
   Message("Filename is : %s\n", filename);
   if (filename == "") {

@@ -65,4 +65,3 @@ find_lv1_call.idc : Simple IDC that asks for a hypercall number and finds
                     all the calls to that hypercall in a lv2 dump
 
 PS3_HV_Dump.idc : Original HV dump analyzer IDC script by xorloser
-

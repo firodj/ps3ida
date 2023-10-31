@@ -10682,5 +10682,3 @@ static get_fnid_comment(module, fnid) {
     return "";
   }
 }
-
-

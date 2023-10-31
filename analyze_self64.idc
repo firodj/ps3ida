@@ -124,7 +124,7 @@ static main() {
     return;
   }
   toc = FindToc(opd);
-  
+
    if (toc != 0) {
     Message("\nFound TOC at 0x%X\n", toc);
     opd = CreateOpd64(opd, SegEnd(opd));

@@ -387,4 +387,3 @@ static get_lv2_rawname(num)
         else
 	                    return form ("%d", num);
 }
-

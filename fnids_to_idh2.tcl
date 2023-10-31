@@ -1,4 +1,4 @@
-#!/usr/bin/tclsh
+#!/usr/bin/env tclsh
 
 set fd [open FNIDS]
 set data [read $fd]
@@ -35,7 +35,7 @@ foreach line [split $data "\n"] {
 	}
 	puts "    return \"$name\";"
 	incr i
-} 
+}
 
 puts "  \} else \{"
 puts "    return form (\"%X\", fnid);"
@@ -60,7 +60,7 @@ foreach line [split $data "\n"] {
 	}
 	puts "    return \"$name\";"
 	incr i
-} 
+}
 puts "  \} else \{"
 puts "    return \"\";"
 puts "  \}"

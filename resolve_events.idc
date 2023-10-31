@@ -37,7 +37,7 @@ static CreateXMBEventStructure(void) {
 
 static main() {
   auto ea, name, opd, func;
-  
+
   ea = ScreenEA();
 
   Warning("Make sure you first find the Events table yourself, and set the cursor"

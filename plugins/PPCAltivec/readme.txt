@@ -29,6 +29,3 @@ If you have the Gamecube "Gekko CPU Extension" plugin by HyperIris
 installed you will need to remove it before using this plugin as
 otherwise they will clash with each other. This plugin now implements
 all features of the Gekko plugin anyway.
-
-
-

@@ -1,11 +1,11 @@
-// 
+//
 // Automatically sets up the PS3 HV Dumps for easier reversing.
-// 
+//
 // This should set up the function tables, resolve rtoc offsets
 // and find some common functions amoung other things.
-// 
+//
 // xorloser February 2010
-// 
+//
 
 #include "idc.idc"
 
@@ -14,20 +14,20 @@ static setup_opd(name, startAddr, endAddr)
 {
 	auto offset, size, func_addr, struct_id;
 	size = endAddr - startAddr;
-	
+
 	// create opd entry struct
 	DelStruc( GetStrucIdByName("OPDEntry") );
 	struct_id = AddStrucEx(-1, "OPDEntry", 0);
 	AddStrucMember(struct_id, "addr",		 0, FF_QWRD|FF_DATA|FF_0OFF,	 0, 8);
 	AddStrucMember(struct_id, "rtocVal",	 8, FF_QWRD|FF_DATA,			-1, 8);
 	AddStrucMember(struct_id, "zero",		16, FF_QWRD|FF_DATA,			-1, 8);
-	
+
 	MakeNameEx(startAddr, name, SN_NOCHECK);
 	for(offset=0; offset<size; offset=offset+24)
 	{
 		MakeUnknown(startAddr+offset, 24, 0);
 		MakeStructEx(startAddr+offset, -1, "OPDEntry");
-		
+
 		// if this points to a function, then create it
 		func_addr = Qword(startAddr+offset+0);
 		if( func_addr != 0 )
@@ -42,7 +42,7 @@ static setup_offset_table(name, startAddr, endAddr)
 {
 	auto offset, size;
 	size = endAddr - startAddr;
-	
+
 	MakeNameEx(startAddr, name, SN_NOCHECK);
 	for(offset=0; offset<size; offset=offset+8)
 	{
@@ -54,27 +54,27 @@ static setup_offset_table(name, startAddr, endAddr)
 static setup_data(name, startAddr, endAddr)
 {
 	auto item_offset, num_items, array_size, array_name, size, addr;
-	
+
 	if(startAddr == BADADDR || endAddr == BADADDR)
 		return;
-	
+
 	// 5000 is max number of items in an array
 	// so make multiple arrays
 	size = endAddr - startAddr;
 	addr = startAddr;
 	MakeUnknown(addr, size, 0);
 	num_items = size/8;
-	
+
 	for(item_offset=0; item_offset<num_items; item_offset=item_offset+5000)
 	{
 		if((num_items-item_offset) < 5000)
 			array_size = num_items-item_offset;
 		else
 			array_size = 5000;
-		
+
 		array_name = form("%s_%d", name, item_offset);
 		MakeNameEx(addr, array_name, SN_NOCHECK);
-		
+
 		MakeQword(addr);
 		MakeArray(addr, array_size);
 		addr = addr + 5000*8;
@@ -85,12 +85,12 @@ static setup_data(name, startAddr, endAddr)
 static fix_rtoc_usage(rtocVal, startAddr, endAddr)
 {
 	auto addr, instr, offset, fixed_addr;
-	
+
 	// setup cross references for rtoc usage
 	for(addr=startAddr; addr<endAddr; addr=addr+4)
 	{
 		instr = Dword(addr);
-		
+
 		// lwz  %r?, -0x7FC0(%rtoc)
 		if((instr & 0xFC1F0000) == 0x80020000)
 		{
@@ -98,16 +98,16 @@ static fix_rtoc_usage(rtocVal, startAddr, endAddr)
 			if(offset >= 0x8000)
 				offset = -(0x10000 - offset);
 			fixed_addr = rtocVal + offset;
-			
+
 			MakeUnknown(fixed_addr, 4, 0);
 			MakeDword(fixed_addr);
 			OpOff(fixed_addr, 0, 0);
-			
+
 			// add_dref(from, to, type)
 			del_dref(addr, Dword(fixed_addr));
 			add_dref(addr, Dword(fixed_addr), XREF_USER|dr_R);
 		}
-		
+
 		// ld  %r?, -0x7FC0(%rtoc)
 		if((instr & 0xFC1F0000) == 0xE8020000)
 		{
@@ -115,11 +115,11 @@ static fix_rtoc_usage(rtocVal, startAddr, endAddr)
 			if(offset >= 0x8000)
 				offset = -(0x10000 - offset);
 			fixed_addr = rtocVal + offset;
-			
+
 			MakeUnknown(fixed_addr, 8, 0);
 			MakeQword(fixed_addr);
 			OpOff(fixed_addr, 0, 0);
-			
+
 			// add_dref(from, to, type)
 			del_dref(addr, Qword(fixed_addr));
 			add_dref(addr, Qword(fixed_addr), XREF_USER|dr_R);
@@ -320,7 +320,7 @@ static setup_hv_table(name, startAddr)
 	auto size, addr, idx, count;
 	count = 256;
 	size = count * 8;
-	
+
 	MakeNameEx(startAddr, "", 0);
 	MakeNameEx(startAddr, name, 0);
 	MakeUnknown(startAddr, size, 0);
@@ -336,7 +336,7 @@ static setup_hv_table(name, startAddr)
 			MakeFunction(Qword(addr), BADADDR);
 		}
 	}
-	
+
 	// fix these entries
 	MakeNameEx(Qword(startAddr +  0*8), "lv1_mm_call", 0);
 	MakeNameEx(Qword(startAddr + 14*8), "lv1_invalid_hvcall", 0);
@@ -347,7 +347,7 @@ static setup_mm_table(name, startAddr)
 	auto size, addr, idx, count;
 	count = 256;
 	size = count * 8;
-	
+
 	MakeNameEx(startAddr, "", 0);
 	MakeNameEx(startAddr, name, 0);
 	MakeUnknown(startAddr, size, 0);
@@ -384,10 +384,10 @@ static make_function(name, startAddr, endAddr, returns)
 	// this is done to support any instructions that do not disassemble correctly
 	MakeFunction(startAddr, startAddr+4);
 	SetFunctionEnd(startAddr, endAddr);
-	
+
 	make_code(startAddr, endAddr, 0);
 	if( !returns ) SetFunctionFlags(startAddr, FUNC_NORET);
-	
+
 	MakeName(startAddr, name);
 }
 
@@ -395,7 +395,7 @@ static make_function_simple(name, startAddr, returns)
 {
 	if(startAddr == BADADDR)
 		return;
-	
+
 	MakeFunction(startAddr, BADADDR);
 	MakeName(startAddr, name);
 	if( !returns ) SetFunctionFlags(startAddr, FUNC_NORET);
@@ -409,35 +409,35 @@ static make_function_simple(name, startAddr, returns)
 static find_version(startAddr, endAddr)
 {
 	auto addr;
-	
+
 	// NOTE: FindBinary is much faster than FindText and doesn't
 	// require the string to be "setup" yet.
-	
+
 	// string is: "release build:"
 	addr = FindBinary(startAddr, SEARCH_DOWN|SEARCH_CASE, "72 65 6c 65 61 73 65 20 62 75 69 6c 64 3a");
 	if(addr == BADADDR)
 		return BADADDR;
-	
+
 	// string is: "JST"
 	addr = FindBinary(addr, SEARCH_DOWN|SEARCH_CASE, "4a 53 54");
 	if(addr == BADADDR)
 		return BADADDR;
 	addr = addr + strlen("JST 200x") + 1;
 	addr = addr + 8 - (addr%8);
-	
+
 	return addr;
 }
 
 static find_opd_start(versionAddr, endAddr)
 {
 	auto addr;
-	
+
 	for(addr=versionAddr+0x10; addr<endAddr; addr=addr+8)
 	{
 		if(Qword(addr) != 0)
 			return addr;
 	}
-	
+
 	return BADADDR;
 }
 
@@ -445,7 +445,7 @@ static find_opd_end(opdStart, endAddr)
 {
 	auto addr, rtoc_val;
 	rtoc_val = Qword(opdStart+8);
-	
+
 	for(addr=opdStart; addr<endAddr; addr=addr+0x18)
 	{
 		if(Qword(addr+8) != rtoc_val)
@@ -457,20 +457,20 @@ static find_opd_end(opdStart, endAddr)
 static find_toc_end(tocStart, endAddr)
 {
 	auto addr;
-	
+
 	for(addr=tocStart; addr<endAddr; addr=addr+8)
 	{
 		if(Qword(addr) == 0)
 			return addr;
 	}
-	
+
 	return BADADDR;
 }
 
 static find_text_end(versionAddr, startAddr)
 {
 	auto addr;
-	
+
 	// search for:
 	// "mtlr %r0"
 	// "blr"
@@ -543,11 +543,11 @@ static find_isoldr_end(startAddr, endAddr)
 static find_hvcall_start(startAddr, endAddr)
 {
 	auto offset, hvc_table_addr, invalid_call_addr;
-	
+
 	invalid_call_addr = FindBinary(startAddr, SEARCH_DOWN|SEARCH_CASE, "38 60 00 00 64 63 ff ff 60 63 ff ec 4e 80 00 20");
 	if(invalid_call_addr == BADADDR)
 		return BADADDR;
-	
+
 	for(offset=startAddr; offset<endAddr - 0x20; offset=offset+8)
 	{
 		if(	Qword(offset + 0x00) == invalid_call_addr &&
@@ -559,7 +559,7 @@ static find_hvcall_start(startAddr, endAddr)
 			return offset - (21*8);
 		}
 	}
-	
+
 	// not found
 	return BADADDR;
 }
@@ -572,12 +572,12 @@ static find_mmcall_start(hvcallAddr, endAddr)
 static find_puts(hvcallAddr)
 {
 	auto addr, offset;
-	
+
 	addr = Qword(hvcallAddr + (210*8));
 	addr = FindBinary(addr, SEARCH_CASE|SEARCH_DOWN, "4E 80 00 20");
 	if(addr == BADADDR)
 		return BADADDR;
-	
+
 	for(offset=0; offset<0x80; offset=offset+4)
 	{
 		if(	(Dword(addr+offset+0) & 0xFFFF0000) == 0xE8620000 &&
@@ -587,19 +587,19 @@ static find_puts(hvcallAddr)
 			return addr;
 		}
 	}
-	
+
 	return BADADDR;
 }
 
 static find_abend_print(hvcallAddr)
 {
 	auto addr, offset, puts_addr, puts_count;
-	
+
 	addr = Qword(hvcallAddr + (210*8));
 	addr = FindBinary(addr, SEARCH_CASE|SEARCH_DOWN, "4E 80 00 20");
 	if(addr == BADADDR)
 		return BADADDR;
-	
+
 	puts_addr = 0;
 	puts_count = 0;
 	for(offset=0; offset<0x80; offset=offset+4)
@@ -623,20 +623,20 @@ static find_abend_print(hvcallAddr)
 				return Rfirst0(addr+offset);
 			}
 		}
-		
+
 	}
-	
+
 	return BADADDR;
 }
 
 static find_abend(hvcallAddr)
 {
 	auto addr, offset, count;
-	
+
 	addr = find_abend_print(hvcallAddr);
 	if(addr == BADADDR)
 		return BADADDR;
-	
+
 	count = 0;
 	for(offset=0; offset<0x80; offset=offset+4)
 	{
@@ -645,34 +645,34 @@ static find_abend(hvcallAddr)
 		if(count == 4)
 			return Rfirst0(addr+offset);
 	}
-	
+
 	return BADADDR;
 }
 
 static find_printf(versionAddr)
 {
 	auto addr, offset;
-	
+
 	addr = FindBinary(versionAddr, SEARCH_CASE, "30 31 32 33 34 35 36 37 38 39 61 62 63 64 65 66 67 68 69");
 	if(addr == BADADDR)
 		return BADADDR;
-	
+
 	addr = DfirstB(addr);
 	if(addr == BADADDR)
 		return BADADDR;
-	
+
 	addr = FindBinary(addr, SEARCH_CASE, "7D 80 00 26");
-	
+
 	addr = RfirstB0(addr);
 	if(addr == BADADDR)
 		return BADADDR;
-	
+
 	for(offset=0; offset<0x80; offset=offset+4)
 	{
 		if((Dword(addr-offset)&0xFFFF0000) == 0xF8210000)
 			return addr-offset;
 	}
-	
+
 	return BADADDR;
 }
 
@@ -683,7 +683,7 @@ static handle_find_results(addr, name)
 		Message("Error finding %s\n", name);
 		return 0;
 	}
-	
+
 	// success
 	return 1;
 }
@@ -696,51 +696,51 @@ static main()
 	auto version_addr, text_start, text_end, opd_start, opd_end, limit_start, limit_end,
 		got_start, got_end, toc_start, toc_end, rtoc_addr, lv2ldr_start, lv2ldr_end,
 		appldr_start, appldr_end, isoldr_start, isoldr_end, hvcall_addr, mmcall_addr, yn;
-	
+
 	Message("\n\nPS3 HV Dump script  -  xorloser February 2010\n\n");
-	
+
 	limit_start	= 0x200000;
 	limit_end	= 0x400000;
-	
+
 	version_addr = find_version(limit_start, limit_end);
 	if( !handle_find_results(version_addr,	"HV version") ) return;
 	Message("%08x: Version found:  v%x.%x.%x.%x\n", version_addr,
 		Word(version_addr+4), Word(version_addr+6),
 		Word(version_addr+12), Word(version_addr+14));
-	
+
 	// search for the opd
 	opd_start = find_opd_start(version_addr, limit_end);
 	if( !handle_find_results(opd_start,	"OPD start") ) return;
 	opd_end = find_opd_end(opd_start, limit_end);
 	if( !handle_find_results(opd_end,	"OPD end") ) return;
 	Message("%08x: OPD limits(0x%x, 0x%x)\n", opd_start, opd_start, opd_end);
-	
+
 	// search for got
 	got_start	= opd_end;
 	if( !handle_find_results(got_start,	"GOT start") ) return;
 	got_end		= got_start + 8;
 	if( !handle_find_results(got_end,	"GOT end") ) return;
 	Message("%08x: GOT limits(0x%x, 0x%x)\n", got_start, got_start, got_end);
-	
+
 	// search for toc
 	toc_start	= got_end;
 	if( !handle_find_results(toc_start,	"TOC start") ) return;
 	toc_end		= find_toc_end(toc_start, limit_end);
 	if( !handle_find_results(toc_end,	"TOC end") ) return;
 	Message("%08x: TOC limits(0x%x, 0x%x)\n", toc_start, toc_start, toc_end);
-	
+
 	// search for text limits
 	text_start	= limit_start;
 	if( !handle_find_results(text_start,"TEXT start") ) return;
 	text_end	= find_text_end(version_addr, limit_start);
 	if( !handle_find_results(text_end,	"TEXT end") ) return;
 	Message("%08x: Text limits(0x%x, 0x%x)\n", text_start, text_start, text_end);
-	
+
 	// search for the rtoc value
 	rtoc_addr = find_rtoc_addr(opd_start);
 	if( !handle_find_results(rtoc_addr,	"RTOC value") ) return;
 	Message("%08x: RTOC: 0x%x\n", rtoc_addr, rtoc_addr);
-	
+
 	// search for hvcall table
 	hvcall_addr	= find_hvcall_start(limit_start, limit_end);
 	if( !handle_find_results(hvcall_addr,	"hvcall start") ) return;
@@ -750,23 +750,23 @@ static main()
 	mmcall_addr	= find_mmcall_start(hvcall_addr, limit_end);
 	if( !handle_find_results(mmcall_addr,	"mmcall start") ) return;
 	Message("%08x: mmcall limits(0x%x, 0x%x)\n", mmcall_addr, mmcall_addr, mmcall_addr+(256*8));
-	
+
 	// search for lv2ldr
 	lv2ldr_start= find_lv2ldr_start(limit_start, limit_end);//if( !handle_find_results(lv2ldr_start,	"lv2ldr start") ) return;
 	lv2ldr_end	= find_lv2ldr_end(lv2ldr_start, limit_end);	//if( !handle_find_results(lv2ldr_end,	"lv2ldr end") ) return;
 	Message("%08x: lv2ldr limits(0x%x, 0x%x)\n", lv2ldr_start, lv2ldr_start, lv2ldr_end);
-	
+
 	// search for appldr
 	appldr_start= find_appldr_start(limit_start, limit_end);//if( !handle_find_results(appldr_start,	"appldr start") ) return;
 	appldr_end	= find_appldr_end(appldr_start, limit_end);	//if( !handle_find_results(appldr_end,	"appldr end") ) return;
 	Message("%08x: appldr limits(0x%x, 0x%x)\n", appldr_start, appldr_start, appldr_end);
-	
+
 	// search for isoldr
 	isoldr_start= find_isoldr_start(limit_start, limit_end);//if( !handle_find_results(isoldr_start,	"isoldr start") ) return;
 	isoldr_end	= find_isoldr_end(isoldr_start, limit_end);	//if( !handle_find_results(isoldr_end,	"isoldr end") ) return;
 	Message("%08x: isoldr limits(0x%x, 0x%x)\n", isoldr_start, isoldr_start, isoldr_end);
-	
-	
+
+
 	// convert text section to code
 	yn = AskYN(0,	"Do you want to force the entire text section to code?\n"
 					"WARNING: This will remove any existing work done.");
@@ -780,20 +780,20 @@ static main()
 		Message("Forcing text to code...\n");
 		make_code(text_start, text_end, 0);
 	}
-	
+
 	// data sections that are not really part of the code
 	// so set these up so they can be safely handled (ignored)
 	setup_data(			"lv2ldr",		lv2ldr_start, lv2ldr_end);
 	setup_data(			"appldr",		appldr_start, appldr_end);
 	setup_data(			"isoldr",		isoldr_start, isoldr_end);
-	
+
 	// tables that can be used to setup a lot of functions
 	setup_opd(			"opd_table",	opd_start, opd_end);
 	setup_offset_table(	"got_table",	got_start, got_end);
 	setup_offset_table(	"toc_table",	toc_start, toc_end);
 	setup_hv_table(		"hvcall_table",	hvcall_addr);
 	setup_mm_table(		"mmcall_table",	mmcall_addr);
-	
+
 	// fix rtoc usage so that data references are created
 	yn = AskYN(0,	"Do you want to setup all rtoc usages?\n"
 					"This may take a little while.");
@@ -807,7 +807,7 @@ static main()
 		Message("Setting up RTOC...\n");
 		fix_rtoc_usage(rtoc_addr,		text_start, text_end);
 	}
-	
+
 	make_function("INT_SystemReset",	0x100, 0x120, 1);
 	make_function("INT_MachineCheck",	0x200, 0x208, 1);
 	make_function("INT_DataStorage",	0x300, 0x304, 1);
@@ -826,12 +826,11 @@ static main()
 	make_function("INT_SystemError",	0x1200,0x1240,1);
 	make_function("INT_Maitenance",		0x1600,0x1640,1);
 	make_function("INT_ThermalMgmt",	0x1800,0x1840,1);
-	
+
 	make_function_simple("puts",		find_puts(hvcall_addr), 1);
 	make_function_simple("abend_print",	find_abend_print(hvcall_addr), 0);
 	make_function_simple("abend",		find_abend(hvcall_addr), 0);
 	make_function_simple("printf",		find_printf(version_addr), 1);
-	
+
 	Message("\ndone\n");
 }
-

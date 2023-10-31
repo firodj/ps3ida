@@ -95,7 +95,7 @@ static FindImportsExports(opd, toc) {
 
 static main() {
   auto ea, toc, opd, make_unk;
-  
+
   make_unk = AskYN (0, "Do you want to undefine the entire database before continuing?\n"
          "It is recomended to start fresh because IDA can screw up the file otherwise.\n"
          "WARNING: You will loose any work you've done on this file!!");
@@ -112,7 +112,7 @@ static main() {
   ea = NextSeg(FirstSeg());
 
   toc = FindToc(ea);
-  
+
    if (toc != 0) {
     Message("\nFound TOC at 0x%X\n", toc);
     opd = CreateOpd(toc);

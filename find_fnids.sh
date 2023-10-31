@@ -1,3 +1,5 @@
+#!/usr/bin/env sh
+
 rm -rf obj
 mkdir obj
 cd obj
@@ -37,4 +39,3 @@ rm FNIDS_xor2
 cat FNIDS_temp2 FNIDS_temp3 | sort | uniq > FNIDS
 rm FNIDS_temp2
 rm FNIDS_temp3
-

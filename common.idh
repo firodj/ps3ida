@@ -147,7 +147,7 @@ static CreateImportStructure(void) {
 static CreateImports(import_start, import_end) {
   auto i, ea, imports, name_ptr, name, fnid_ptr, fnid, stub_ptr, stub;
   auto fnid_name, fnid_comment;
-  
+
   Message("Defining Import stubs\n");
   for (ea = import_start; ea < import_end; ea = ea + 0x2C) {
     MakeUnknown(ea, 0x2C, DOUNK_SIMPLE);
@@ -175,7 +175,7 @@ static CreateImports(import_start, import_end) {
       MakeFunction(stub, BADADDR);
       MakeName(stub,  form("_%s_%s", name, fnid_name));
       fnid_comment = get_fnid_comment(name, fnid);
-      if (fnid_comment != "") 
+      if (fnid_comment != "")
 	SetFunctionCmt(stub, fnid_comment, 1);
     }
   }
@@ -185,7 +185,7 @@ static CreateImports(import_start, import_end) {
 static CreateExports(export_start, export_end) {
   auto i, ea, exports, name_ptr, name, fnid_ptr, fnid, stub_ptr, stub_opd, stub;
   auto fnid_name, fnid_comment;
-  
+
   Message("Defining Export stubs\n");
   for (ea = export_start; ea < export_end; ea = ea + 0x1c) {
     MakeUnknown(ea, 0x1c, DOUNK_SIMPLE);
@@ -218,8 +218,8 @@ static CreateExports(export_start, export_end) {
       MakeFunction(stub, BADADDR);
       MakeName(stub,  form("_Export_%s_%s", name, fnid_name));
       fnid_comment = get_fnid_comment(name, fnid);
-      if (fnid_comment != "") 
+      if (fnid_comment != "")
 	SetFunctionCmt(stub, fnid_comment, 1);
-    }    
+    }
   }
 }
