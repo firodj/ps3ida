@@ -363,7 +363,7 @@ altivec_operand g_altivecOperands[] = // {Length, Start bit}
 // Opcode identifiers (they map into g_altivecOpcodes array)
 
 enum altivec_insn_type_t {
-    altivec_insn_start = CUSTOM_CMD_ITYPE,
+    altivec_insn_start = CUSTOM_INSN_ITYPE,
 
     altivec_lvebx = altivec_insn_start,
     altivec_lvehx,
@@ -2039,9 +2039,9 @@ altivec_opcode g_altivecOpcodes[] = {
  *
  ***************************************************************************************************/
 
-int PluginAnalyse(void) {
+int PluginAnalyse(insn_t & cmd) {
     // Get the
-    int codeBytes = get_long(cmd.ea);
+    int codeBytes = get_dword(cmd.ea);
 
     // When we check
     int opBytes = (codeBytes & OP_MASK);
@@ -2062,7 +2062,7 @@ int PluginAnalyse(void) {
                 int operandLoop = 0;
                 while ((pCurrentOpcode->operands[operandLoop] != 0) &&
                        (operandLoop < MAX_OPERANDS)) {
-                    op_t *operandData = &cmd.Operands[operandLoop];
+                    op_t *operandData = &cmd.ops[operandLoop];
                     altivec_operand *pCurrentOperand =
                         &g_altivecOperands[pCurrentOpcode->operands[operandLoop]];
 
@@ -2087,7 +2087,7 @@ int PluginAnalyse(void) {
                     // Signed immediate (extendedBits is sign extended into 32 bits)
                     case SIMM: {
                         operandData->type  = o_imm;
-                        operandData->dtyp  = dt_byte;
+                        operandData->dtype = dt_byte;
                         operandData->value = extendedBits;
                         break;
                     }
@@ -2095,7 +2095,7 @@ int PluginAnalyse(void) {
                     // Unsigned immediate
                     case UIMM: {
                         operandData->type  = o_imm;
-                        operandData->dtyp  = dt_byte;
+                        operandData->dtype = dt_byte;
                         operandData->value = rawBits;
                         break;
                     }
@@ -2103,7 +2103,7 @@ int PluginAnalyse(void) {
                     // Shift values are the same as unsigned immediates, but we separate for clarity
                     case SHB: {
                         operandData->type  = o_imm;
-                        operandData->dtyp  = dt_byte;
+                        operandData->dtype = dt_byte;
                         operandData->value = rawBits;
                         break;
                     }
@@ -2120,7 +2120,7 @@ int PluginAnalyse(void) {
                     // Altivec data stream ID
                     case STRM: {
                         operandData->type  = o_imm;
-                        operandData->dtyp  = dt_byte;
+                        operandData->dtype = dt_byte;
                         operandData->value = rawBits;
                         break;
                     }
@@ -2130,7 +2130,7 @@ int PluginAnalyse(void) {
                     case L10:
                     case L15: {
                         operandData->type  = o_imm;
-                        operandData->dtyp  = dt_byte;
+                        operandData->dtype = dt_byte;
                         operandData->value = rawBits;
                         break;
                     }
@@ -2182,7 +2182,7 @@ int PluginAnalyse(void) {
 
                     case VPERM128: {
                         operandData->type  = o_imm;
-                        operandData->dtyp  = dt_byte;
+                        operandData->dtype = dt_byte;
                         operandData->value = ((codeBytes >> 1) & 0xE0) | ((codeBytes >> 16) & 0x1F);
                         break;
                     }
@@ -2191,7 +2191,7 @@ int PluginAnalyse(void) {
                     case VD3D1:
                     case VD3D2: {
                         operandData->type  = o_imm;
-                        operandData->dtyp  = dt_byte;
+                        operandData->dtype = dt_byte;
                         operandData->value = rawBits;
                         break;
                     }
@@ -2199,7 +2199,7 @@ int PluginAnalyse(void) {
                     case RA0: {
                         if (rawBits == 0) {
                             operandData->type  = o_imm;
-                            operandData->dtyp  = dt_byte;
+                            operandData->dtype = dt_byte;
                             operandData->value = rawBits;
                         } else {
                             operandData->type      = o_reg;
@@ -2238,7 +2238,7 @@ int PluginAnalyse(void) {
                     case WC:
                     case IC: {
                         operandData->type  = o_imm;
-                        operandData->dtyp  = dt_byte;
+                        operandData->dtype = dt_byte;
                         operandData->value = rawBits;
                         break;
                     }
@@ -2313,42 +2313,69 @@ int PluginAnalyse(void) {
  *
  ***************************************************************************************************/
 
-static int idaapi PluginExtensionCallback(void * /*user_data*/, int event_id, va_list va) {
-    if (event_id == ph.custom_ana) {
-        // Analyse a command to see if it's an Altivec instruction.
-        int length = PluginAnalyse();
+//ssize_t idaapi hook_cb_t(void *user_data, int notification_code, va_list va);
+static ssize_t idaapi PluginExtensionCallback(void * /*user_data*/, int event_id, va_list va) {    
+    switch (event_id) {
+    case processor_t::ev_ana_insn: { // custom_ana
+        // Analyse a command to see if it's an Altivec instruction.        
+        insn_t & cmd = * va_arg(va, insn_t *);
+
+        int length = PluginAnalyse(cmd);
         if (length) {
             cmd.size = length;
             // return ( length + 1 );       // event processed
             return (length); // event processed
         }
-    } else if (event_id == ph.custom_mnem) {
+    } break;
+    case processor_t::ev_out_mnem: { // custom_mnem
+        // va_start(va, 1);
+        outctx_t *ctx = va_arg(va, outctx_t *);
+        // va_end(va);
+        insn_t &cmd = ctx->insn;
+
         // Obtain mnemonic for our Altivec instructions.
-        if (cmd.itype >= CUSTOM_CMD_ITYPE) {
-            char *buf   = va_arg(va, char *);
-            size_t size = va_arg(va, size_t);
-            qstrncpy(buf, g_altivecOpcodes[cmd.itype - altivec_lvebx].name, size);
-            return 2;
+        if (cmd.itype >= CUSTOM_INSN_ITYPE) {
+            const char *mnem = g_altivecOpcodes[cmd.itype - altivec_insn_start].name;            
+#if 0
+            ctx->outbuf = mnem;
+#else                        
+            ctx->out_line(mnem, COLOR_INSN);     
+            ctx->out_spaces(10);
+#endif
+            //ctx->out_custom_mnem(mnem);
+            return 1; // was 2;
         }
-    } else if (event_id == ph.custom_outop) {
+    } break;
+
+    case processor_t::ev_out_operand: // custom_outop ev_out_operand
+    {
+        // va_start(va, 2);
+        outctx_t *ctx       = va_arg(va, outctx_t *);
+        const op_t *operand = va_arg(va, op_t *);        
+        // va_end(va);
+        insn_t &cmd = ctx->insn;
+
         // Display operands that differ from PPC ones.. like our Altivec registers.
-        if (cmd.itype >= CUSTOM_CMD_ITYPE) {
-            op_t *operand = va_arg(va, op_t *);
+        if (cmd.itype >= CUSTOM_INSN_ITYPE) {
             if ((operand->type == o_reg) && (operand->specflag1 & 0x01)) {
-                char buf[MAXSTR];
-                qsnprintf(buf, MAXSTR, "%%vr%d", operand->reg);
-                out_register(buf);
-                return 2;
+                //char buf[MAXSTR];
+                //qsnprintf(buf, MAXSTR, "%%vr%d", operand->reg);
+                qstring buf;
+                buf.sprnt("%%vr%d", operand->reg);
+                ctx->out_register(buf.c_str());
+                return 1;
             } else if ((operand->type == o_reg) && (operand->specflag1 & 0x02)) {
-                char buf[MAXSTR];
+                //char buf[MAXSTR];
                 for (int i = 0; i < 8; i++) {
                     if (operand->reg & (1 << i)) {
-                        qsnprintf(buf, MAXSTR, "cr%d", 7 - i);
-                        out_register(buf);
+                        //qsnprintf(buf, MAXSTR, "cr%d", 7 - i);
+                        qstring buf;
+                        buf.sprnt("cr%d", 7 - i);
+                        ctx->out_register(buf.c_str());
                         break;
                     }
                 }
-                return 2;
+                return 1;
             }
             // decode SPR Values
             else if ((operand->type == o_reg) && (operand->specflag1 & 0x04)) {
@@ -2358,96 +2385,117 @@ static int idaapi PluginExtensionCallback(void * /*user_data*/, int event_id, va
                 // Go through the entire special register array looking for a match
                 for (int sprgLoop = 0; sprgLoop < sprgArraySize; sprgLoop++) {
                     if (operand->reg == g_cbeaSprgs[sprgLoop].sprg) {
-                        out_register(g_cbeaSprgs[sprgLoop].shortName);
-                        return 2;
+                        ctx->out_register(g_cbeaSprgs[sprgLoop].shortName);
+                        return 1;
                     }
                 }
-                char buf[MAXSTR];
-                qsnprintf(buf, MAXSTR, "%x", operand->reg);
-                out_register(buf);
-                return 2;
+                //char buf[MAXSTR];
+                //qsnprintf(buf, MAXSTR, "%x", operand->reg);
+                qstring buf;
+                buf.sprnt("%x", operand->reg);
+                ctx->out_register(buf.c_str());
+                return 1;
             }
             // decode fr values (gekko)
             else if ((operand->type == o_reg) && (operand->specflag1 & 0x08)) {
-                char buf[MAXSTR];
-                qsnprintf(buf, MAXSTR, "%%fr%d", operand->reg);
-                out_register(buf);
-                return 2;
+                //char buf[MAXSTR];
+                //qsnprintf(buf, MAXSTR, "%%fr%d", operand->reg);
+                qstring buf;
+                buf.sprnt("%%fr%d", operand->reg);
+                ctx->out_register(buf.c_str());
+                return 1;
             }
         }
-    } else if (event_id == ph.custom_out) {
+    } break;
+
+    case processor_t::ev_out_insn: { // custom_out ev_out_insn
+
+        outctx_t *ctx = va_arg(va, outctx_t *);
+
+        insn_t &cmd = ctx->insn;
+#if 0
         // Custom output
-        if (cmd.itype >= CUSTOM_CMD_ITYPE) {
+        if (cmd.itype >= CUSTOM_INSN_ITYPE) {
             char buf[MAXSTR];
-            init_output_buffer(buf, sizeof(buf));
+            // ctx->init_output_buffer(buf, sizeof(buf));
 
             // Output mnemonic
-            OutMnem();
+#if 0
+            const char *mnem = g_altivecOpcodes[cmd.itype - altivec_insn_start].name;
+            ctx->out_custom_mnem(mnem);
+#else
+            ctx->out_mnem(); // OutMnem();
+#endif
 
             // Output operands
-            if (cmd.Op1.showed() && cmd.Op1.type != o_void) {
-                out_one_operand(0);
+            if (cmd.Op1.shown() && cmd.Op1.type != o_void) {
+                ctx->out_one_operand(0);
             }
 
-            if (cmd.Op2.showed() && cmd.Op2.type != o_void) {
-                if (cmd.Op1.showed()) {
-                    out_symbol(',');
-                    OutChar(' ');
+            if (cmd.Op2.shown() && cmd.Op2.type != o_void) {
+                if (cmd.Op1.shown()) {
+                    ctx->out_symbol(',');
+                    ctx->out_char(' ');
                 }
-                out_one_operand(1);
+                ctx->out_one_operand(1);
             }
 
-            if (cmd.Op3.showed() && cmd.Op3.type != o_void) {
-                if (cmd.Op1.showed() || cmd.Op2.showed()) {
-                    out_symbol(',');
-                    OutChar(' ');
+            if (cmd.Op3.shown() && cmd.Op3.type != o_void) {
+                if (cmd.Op1.shown() || cmd.Op2.shown()) {
+                    ctx->out_symbol(',');
+                    ctx->out_char(' ');
                 }
-                out_one_operand(2);
+                ctx->out_one_operand(2);
             }
 
-            if (cmd.Op4.showed() && cmd.Op4.type != o_void) {
-                if (cmd.Op1.showed() || cmd.Op2.showed() || cmd.Op3.showed()) {
-                    out_symbol(',');
-                    OutChar(' ');
+            if (cmd.Op4.shown() && cmd.Op4.type != o_void) {
+                if (cmd.Op1.shown() || cmd.Op2.shown() || cmd.Op3.shown()) {
+                    ctx->out_symbol(',');
+                    ctx->out_char(' ');
                 }
-                out_one_operand(3);
+                ctx->out_one_operand(3);
             }
 
-            if (cmd.Op5.showed() && cmd.Op5.type != o_void) {
-                if (cmd.Op1.showed() || cmd.Op2.showed() || cmd.Op3.showed() || cmd.Op4.showed()) {
-                    out_symbol(',');
-                    OutChar(' ');
+            if (cmd.Op5.shown() && cmd.Op5.type != o_void) {
+                if (cmd.Op1.shown() || cmd.Op2.shown() || cmd.Op3.shown() || cmd.Op4.shown()) {
+                    ctx->out_symbol(',');
+                    ctx->out_char(' ');
                 }
-                out_one_operand(4);
+                ctx->out_one_operand(4);
             }
 
             // Output auto comments
-            if (showAllComments() && (get_cmt(cmd.ea, true, NULL, 0) == -1)) {
-                for (int indentLoop = (int)tag_strlen(buf); indentLoop < (inf.comment - inf.indent);
+            if (inf_show_all_comments() && (get_cmt(NULL, cmd.ea, true) == -1)) {
+                for (int indentLoop = (int)tag_strlen(buf); indentLoop < (inf.cmt_indent);
                      indentLoop++)
-                    OutChar(' ');
-                out_line("# ", COLOR_AUTOCMT);
-                out_line(g_altivecOpcodes[cmd.itype - altivec_lvebx].description,
-                         COLOR_AUTOCMT); // add a check for sprg
-            }
-            // else
-            gl_comm = 1;
-
-            term_output_buffer();
-
-            MakeLine(buf);
-            return 2;
+                    ctx->out_char(' ');
+                ctx->out_line("# ", COLOR_AUTOCMT);
+                ctx->out_line(g_altivecOpcodes[cmd.itype - altivec_lvebx].description,
+                              COLOR_AUTOCMT); // add a check for sprg
+            } 
+            ctx->close_comment(); // gl_comm = 1;
+            
+            ctx->flush_outbuf(); // term_output_buffer();                        
         }
-    } else if (event_id == ph.may_be_func) {
+#endif
+        return 0; // retval void
+    } break;
+
+
+    case processor_t::ev_may_be_func: { // may_be_func
+        insn_t &cmd = *va_arg(va, insn_t *);
         // Can this be the start of a function?
-        if (cmd.itype >= CUSTOM_CMD_ITYPE) {
+        if (cmd.itype >= CUSTOM_INSN_ITYPE) {
             return 100;
         }
-    } else if (event_id == ph.is_sane_insn) {
+    } break;
+    case processor_t::ev_is_sane_insn: { // is_sane_insn
+        insn_t &cmd = *va_arg(va, insn_t *);
         // If we've identified the command as an Altivec instruction, it's good to go.
-        if (cmd.itype >= CUSTOM_CMD_ITYPE) {
+        if (cmd.itype >= CUSTOM_INSN_ITYPE) {
             return 1;
         }
+    } break;
     }
 
     // We didn't process the event.. just let IDA handle it.
@@ -2469,7 +2517,7 @@ static int idaapi PluginExtensionCallback(void * /*user_data*/, int event_id, va
  *
  ***************************************************************************************************/
 
-int idaapi PluginStartup(void) {
+plugmod_t * idaapi PluginStartup(void) {
     if (ph.id != PLFM_PPC)
         return PLUGIN_SKIP;
 
@@ -2521,7 +2569,7 @@ void idaapi PluginShutdown(void) {
  *
  ***************************************************************************************************/
 
-void idaapi PluginMain(int param) {
+bool idaapi PluginMain(size_t param) {
     if (g_HookState == kEnabled) {
         unhook_from_notification_point(HT_IDP, PluginExtensionCallback);
         g_HookState = kDisabled;
@@ -2542,6 +2590,8 @@ void idaapi PluginMain(int param) {
     info("AUTOHIDE NONE\n"
          "%s is now %s",
          g_pluginName, pHookStateDescription[g_HookState]);
+
+    return true;
 }
 
 /***************************************************************************************************
